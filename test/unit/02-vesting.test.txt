@@ -1,0 +1,445 @@
+/* globals artifacts */
+
+//import chai from "chai";
+const { chai, expect } = require("chai");
+const { bnChai } = require("bn-chai");
+const { BN } = require("bn.js");
+const { ethers } = require("ethers");
+
+const {
+  checkErrorRevert,
+  currentBlockTime,
+  forwardTime,
+  makeTxAtTimestamp,
+  startMining,
+} = require("../helpers/test-helper");
+const { fundCrowdsale } = require("../helpers/fundCrowdsale");
+
+// const { expect } = chai;
+// chai.use(bnChai(web3.utils.BN));
+
+const Token = artifacts.require("NFTsHedgeFund");
+const Crowdsale = artifacts.require("Crowdsale");
+
+contract("crowdsale Simple", (accounts) => {
+  let token;
+  let crowdsale;
+
+  const USER0 = accounts[0];
+  const USER1 = accounts[1];
+
+  const WAD = ethers.utils.parseEther("1");
+  const BASE = ethers.utils.parseEther("100000");
+  const GRANT = ethers.utils.parseEther("500000");
+  const DURATION = 60 * 60 * 24 * 365;
+
+  before(async () => {
+    token = await Token.new({ from: USER0 });
+    //token.unlock();
+  });
+
+  beforeEach(async () => {
+    crowdsale = await Crowdsale.new(4000000, USER0, token.address, {
+      from: USER0,
+    });
+    await token.setAddressNoFee(crowdsale.address);
+  });
+
+  describe("when initialised", () => {
+    it("can fetch the storage variables", async () => {
+      const tokenAddress = await crowdsale.token();
+      // const initialClaimable = await crowdsale.initialClaimable();
+      // const crowdsaleDuration = await crowdsale.crowdsaleDuration();
+      const startTime = await crowdsale.startTime();
+
+      expect(token.address).to.equal(tokenAddress);
+      // expect(initialClaimable).to.eq.BN(BASE);
+      // expect(crowdsaleDuration).to.eq.BN(DURATION);
+      expect(startTime.toString()).to.eq("0");
+    });
+
+    it("can set grants", async () => {
+      await crowdsale.setGrant(USER1, WAD.toString());
+
+      const grant = await crowdsale.grants(USER1);
+      expect(grant.amount.toString()).to.eq(WAD.toString());
+      expect(grant.claimed.toString()).to.eq("0");
+    });
+
+    it("can set grants in bulk", async () => {
+      await crowdsale.setGrants(
+        [USER0, USER1],
+        [(WAD * 2).toString(), WAD.toString()]
+      );
+
+      const grant0 = await crowdsale.grants(USER0);
+      expect(grant0.amount.toString()).to.eq((WAD * 2).toString());
+
+      const grant1 = await crowdsale.grants(USER1);
+      expect(grant1.amount.toString()).to.eq(WAD.toString());
+    });
+
+    it("cannot set grants in bulk with mismatched arguments", async () => {
+      await checkErrorRevert(
+        crowdsale.setGrants([USER0, USER1], [WAD.toString()]),
+        "vesting-simple-bad-inputs"
+      );
+    });
+
+    it("can edit grants", async () => {
+      let grant;
+
+      await crowdsale.setGrant(USER1, WAD.toString());
+
+      grant = await crowdsale.grants(USER1);
+      expect(grant.amount.toString()).to.eq(WAD.toString());
+      expect(grant.claimed.toString()).to.eq("0");
+
+      await crowdsale.setGrant(USER1, WAD.toString());
+
+      grant = await crowdsale.grants(USER1);
+      expect(grant.amount.toString()).to.eq((WAD * 2).toString());
+      expect(grant.claimed.toString()).to.eq("0");
+    });
+
+    // it("can delete a grant by setting the amount to zero", async () => {
+    //   let grant;
+
+    //   await crowdsale.setGrant(USER1, WAD);
+
+    //   grant = await crowdsale.grants(USER1);
+    //   expect(grant.amount).to.eq.BN(WAD);
+    //   expect(grant.claimed).to.be.zero;
+
+    //   await crowdsale.setGrant(USER1, 0);
+
+    //   grant = await crowdsale.grants(USER1);
+    //   expect(grant.amount).to.be.zero;
+    //   expect(grant.claimed).to.be.zero;
+    // });
+
+    // it("cannot set grants if not owner", async () => {
+    //   await checkErrorRevert(
+    //     crowdsale.setGrant(USER1, WAD, { from: USER1 }),
+    //     "ds-auth-unauthorized"
+    //   );
+    // });
+
+    it("cannot claim grants if not active", async () => {
+      await crowdsale.setGrant(USER1, WAD.toString());
+
+      await checkErrorRevert(
+        crowdsale.claimGrant({ from: USER1 }),
+        "vesting-simple-nothing-to-claim"
+      );
+    });
+
+    // it("can withdraw tokens if owner", async () => {
+    //   await token.mint(crowdsale.address, WAD);
+    //   const balancePre = await token.balanceOf(USER0);
+
+    //   await crowdsale.withdraw(WAD);
+
+    //   const balancePost = await token.balanceOf(USER0);
+    //   expect(balancePost.sub(balancePre)).to.eq.BN(WAD);
+    // });
+  });
+
+  describe("when active", () => {
+    let startBlockTime;
+
+    beforeEach(async () => {
+      //await token.mint(crowdsale.address, GRANT);
+      await fundCrowdsale(token, crowdsale, USER0);
+
+      await crowdsale.setGrant(USER1, GRANT);
+
+      startBlockTime = await currentBlockTime();
+      await makeTxAtTimestamp(crowdsale.activate, [], startBlockTime, this);
+    });
+
+    afterEach(async () => {
+      // In case of errors
+      await startMining();
+    });
+
+    it("can set the correct startTime", async () => {
+      const startTime = await crowdsale.startTime();
+      expect(startTime.toString()).to.eq(startBlockTime.toString());
+    });
+
+    it("cannot activate twice", async () => {
+      await checkErrorRevert(
+        crowdsale.activate(),
+        "crowdsale-simple-already-active"
+      );
+    });
+
+    // it("cannot claim a grant if the contract has no tokens", async () => {
+    //   await crowdsale.withdraw(GRANT);
+
+    //   await checkErrorRevert(
+    //     crowdsale.claimGrant({ from: USER1 }),
+    //     "ds-token-insufficient-balance"
+    //   );
+    // });
+
+    it("cannot claim a non-existent grant", async () => {
+      await checkErrorRevert(
+        crowdsale.claimGrant({ from: USER0 }),
+        "crowdsale-simple-nothing-to-claim"
+      );
+    });
+
+    it("can claim 0 number of tokens immediately", async () => {
+      const timestamp = await currentBlockTime();
+      await checkErrorRevert(
+        makeTxAtTimestamp(
+          crowdsale.claimGrant,
+          [{ from: USER1 }],
+          timestamp,
+          this
+        ),
+        "crowdsale-simple-nothing-to-claim"
+      );
+    });
+
+    it("can claim BASE + 1/2 of the remaining grant after six months", async () => {
+      const balancePre = await token.balanceOf(USER1);
+
+      let timestamp = await currentBlockTime();
+      timestamp += DURATION / 2;
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balancePost = await token.balanceOf(USER1);
+      const expectedBalance = GRANT.div(2);
+      expect(balancePost.sub(balancePre).toString()).to.eq(
+        expectedBalance.toString()
+      );
+    });
+
+    it("can claim the entire grant after one year", async () => {
+      const balancePre = await token.balanceOf(USER1);
+
+      let timestamp = await currentBlockTime();
+      timestamp += DURATION;
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balancePost = await token.balanceOf(USER1);
+      expect(balancePost.sub(balancePre).toString()).to.eq(GRANT.toString());
+    });
+
+    it("can claim no more than the entire grant after two years", async () => {
+      const balancePre = await token.balanceOf(USER1);
+
+      let timestamp = await currentBlockTime();
+      timestamp += DURATION * 2;
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balancePost = await token.balanceOf(USER1);
+      expect(balancePost.sub(balancePre).toString()).to.eq(GRANT.toString());
+    });
+
+    it("cannot claim more tokens than they should", async () => {
+      const balancePre = await token.balanceOf(USER1);
+
+      let timestamp = await currentBlockTime();
+      timestamp += DURATION / 2;
+
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balancePost = await token.balanceOf(USER1);
+      expect(balancePost.sub(balancePre).toString()).to.eq(
+        GRANT.div(2).toString()
+      );
+
+      await checkErrorRevert(
+        makeTxAtTimestamp(
+          crowdsale.claimGrant,
+          [{ from: USER1 }],
+          timestamp,
+          this
+        ),
+        "crowdsale-simple-nothing-to-claim"
+      );
+    });
+
+    it("can claim the grant in phases", async () => {
+      // const balance0 = await token.balanceOf(USER1);
+
+      let timestamp = await currentBlockTime();
+      // await makeTxAtTimestamp(
+      //   crowdsale.claimGrant,
+      //   [{ from: USER1 }],
+      //   timestamp,
+      //   this
+      // );
+
+      const balance1 = await token.balanceOf(USER1);
+      // expect(balance1.toString()).to.eq("0");
+
+      timestamp += DURATION / 2;
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balance2 = await token.balanceOf(USER1);
+      expect(balance2.sub(balance1).toString()).to.eq(GRANT.div(2).toString());
+
+      timestamp += DURATION / 2;
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balance3 = await token.balanceOf(USER1);
+      expect(balance3.sub(balance2).toString()).to.eq(GRANT.div(2).toString());
+
+      timestamp += DURATION / 2;
+
+      await checkErrorRevert(
+        makeTxAtTimestamp(
+          crowdsale.claimGrant,
+          [{ from: USER1 }],
+          timestamp,
+          this
+        ),
+        "crowdsale-simple-nothing-to-claim"
+      );
+    });
+
+    // it("cannot set an amount below what has already been claimed", async () => {
+    //   const timestamp = await currentBlockTime();
+    //   await makeTxAtTimestamp(
+    //     crowdsale.claimGrant,
+    //     [{ from: USER1 }],
+    //     timestamp,
+    //     this
+    //   );
+
+    //   const grant = await crowdsale.grants(USER1);
+    //   expect(grant.claimed).to.eq.BN(BASE);
+
+    //   await checkErrorRevert(
+    //     crowdsale.setGrant(USER1, BASE.subn(1)),
+    //     "crowdsale-simple-bad-amount"
+    //   );
+    // });
+
+    it("can track the total amount of grants", async () => {
+      let totalAmount;
+
+      totalAmount = await crowdsale.totalAmount();
+      expect(totalAmount.toString()).to.eq(GRANT.toString());
+
+      await crowdsale.setGrant(USER0, WAD.toString());
+      totalAmount = await crowdsale.totalAmount();
+      expect(totalAmount.toString()).to.eq(
+        ethers.utils.parseEther("500001").toString()
+      );
+
+      // await crowdsale.setGrant(USER0, 0);
+      // totalAmount = await crowdsale.totalAmount();
+      // expect(totalAmount.toString()).to.eq.BN(GRANT.toString());
+    });
+
+    it("can track the total amount claimed", async () => {
+      //await token.mint(crowdsale.address, GRANT);
+      await crowdsale.setGrant(USER0, GRANT);
+
+      await forwardTime(DURATION, this);
+
+      let totalClaimed;
+
+      await crowdsale.claimGrant({ from: USER0 });
+      totalClaimed = await crowdsale.totalClaimed();
+      expect(totalClaimed.toString()).to.eq(GRANT.toString());
+
+      await crowdsale.claimGrant({ from: USER1 });
+      totalClaimed = await crowdsale.totalClaimed();
+      expect(totalClaimed.toString()).to.eq(GRANT.mul(2).toString());
+    });
+
+    it.skip("can vest immediately if given a crowdsale duration of 1", async () => {
+      crowdsale = await Crowdsale.new(token.address, BASE, 1, {
+        from: USER0,
+      });
+      await token.mint(crowdsale.address, GRANT);
+      await crowdsale.setGrant(USER1, GRANT);
+      await crowdsale.activate();
+
+      const balance0 = await token.balanceOf(USER1);
+
+      const timestamp = await currentBlockTime();
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp + 1,
+        this
+      );
+
+      const balance1 = await token.balanceOf(USER1);
+      expect(balance1.sub(balance0)).to.eq.BN(GRANT);
+    });
+
+    it("can vest linearly if given an initial claimable of of 0", async () => {
+      // crowdsale = await Crowdsale.new(token.address, 0, DURATION, {
+      //   from: USER0,
+      // });
+      // await token.mint(crowdsale.address, GRANT);
+      // await crowdsale.setGrant(USER1, GRANT);
+      // await crowdsale.activate();
+
+      const balance0 = await token.balanceOf(USER1);
+
+      let timestamp = await currentBlockTime();
+
+      timestamp += DURATION / 2;
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balance1 = await token.balanceOf(USER1);
+      expect(balance1.sub(balance0).toString()).to.eq(GRANT.div(2).toString());
+
+      timestamp += DURATION / 2;
+      await makeTxAtTimestamp(
+        crowdsale.claimGrant,
+        [{ from: USER1 }],
+        timestamp,
+        this
+      );
+
+      const balance2 = await token.balanceOf(USER1);
+      expect(balance2.sub(balance0).toString()).to.eq(GRANT.toString());
+    });
+  });
+});

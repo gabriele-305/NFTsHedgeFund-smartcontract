@@ -1,0 +1,31 @@
+{
+  "devDependencies": {
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^2.0.0",
+    "@nomiclabs/hardhat-ethers": "npm:hardhat-deploy-ethers@^0.3.0-beta.13",
+    "@nomiclabs/hardhat-etherscan": "^3.0.0",
+    "@nomiclabs/hardhat-waffle": "^2.0.3",
+    "@openzeppelin/contracts": "^4.8.1",
+    "@openzeppelin/test-helpers": "^0.5.16",
+    "bn-chai": "^1.0.1",
+    "chai": "4.3.7",
+    "ethereum-waffle": "^4.0.9",
+    "ethers": "^5.7.2",
+    "fs": "^0.0.1-security",
+    "ganache-cli": "^6.12.2",
+    "hardhat": "^2.12.4",
+    "hardhat-deploy": "^0.11.22",
+    "hardhat-gas-reporter": "^1.0.8",
+    "shortid": "^2.2.16",
+    "solidity-coverage": "^0.8.0",
+    "typechain": "^8.1.0",
+    "web3-utils": "1.0.0-beta.51"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.3"
+  },
+  "scripts": {
+    "slither": "slither . --solc-remaps '@openzeppelin=node_modules/@openzeppelin @chainlink=node_modules/@chainlink' --exclude naming-convention,external-function,low-level-calls",
+    "format": "prettier --write ."
+  }
+}
