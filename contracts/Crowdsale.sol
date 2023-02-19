@@ -105,6 +105,11 @@ contract Crowdsale is Ownable {
         // calculate token amount to be created
         uint256 tokens = _getTokenAmount(weiAmount);
 
+        require(
+            totalAmount + tokens <= token.balanceOf(address(this)),
+            "Crowdsale: Token amount exceded the balance of this contract"
+        );
+
         // update state
         weiRaised += weiAmount;
 
