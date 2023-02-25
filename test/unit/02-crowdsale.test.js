@@ -77,11 +77,29 @@ describe("Staking", () => {
     });
 
     it("revert if the presale is not active", async () => {
+      await fundCrowdsale();
+
       await expect(
         crowdsale.connect(signer2).buyTokens(signer2.address, {
           value: ethers.utils.parseEther("0.000025"),
         })
-      ).to.be.reverted;
+      ).to.be.revertedWith("Crowdsale: presale not active!");
+    });
+
+    it("revert if there aren't enough token", async () => {
+      await fundCrowdsale();
+      await crowdsale.setIsPresaleActiveOrNotActive(true);
+
+      await crowdsale.buyTokens(signer2.address, {
+        value: ethers.utils.parseEther("87.499"),
+      });
+      await expect(
+        crowdsale.buyTokens(signer3.address, {
+          value: ethers.utils.parseEther("0.005"),
+        })
+      ).to.be.revertedWith(
+        "Crowdsale: Token amount exceded the balance of this contract"
+      );
     });
   });
 });
