@@ -113,7 +113,7 @@ contract Crowdsale is Ownable {
         // update state
         weiRaised += weiAmount;
 
-        setGrant(msg.sender, tokens);
+        setGrant(_beneficiary, tokens);
 
         //_processPurchase(_beneficiary, tokens);
         emit TokenPurchase(msg.sender, _beneficiary, weiAmount, tokens);
